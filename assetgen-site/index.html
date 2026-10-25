@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Asset Generator — Your games</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="header">
+  <div class="header-inner">
+    <span class="brand-mark" aria-hidden="true">AG</span>
+    <span style="font-weight:700;font-size:15px;">Asset Generator</span>
+    <div class="header-right">
+      <span class="org">Playsight AI</span>
+      <span class="avatar" title="You (local test user)">HH</span>
+    </div>
+  </div>
+</header>
+
+<main class="container" style="padding-top:40px;padding-bottom:80px;">
+  <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;margin-bottom:28px;">
+    <div>
+      <h1 style="margin:0 0 6px;font-size:28px;">Your games</h1>
+      <p class="muted" style="margin:0;font-size:14px;">Pick a game to enter its style workspace.</p>
+    </div>
+    <label class="flex-row gap-8" style="background:#15151a;border:1px solid var(--border);border-radius:8px;padding:8px 12px;min-width:240px;">
+      <span class="muted" style="font-size:13px;">Search</span>
+      <input type="search" id="gameSearch" placeholder="Find a game…" aria-label="Search games" style="border:none;outline:none;flex:1;font-size:13px;background:transparent;padding:0;">
+    </label>
+  </div>
+
+  <div id="gameGrid" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;"></div>
+
+  <p class="muted" style="margin-top:32px;font-size:12px;">
+    This is a local prototype — everything you see is stored only in this browser (localStorage), nothing is uploaded anywhere.
+    <a href="#" id="resetLink" style="color:var(--accent);">Reset to the sample data</a>.
+  </p>
+</main>
+
+<script src="app.js"></script>
+<script>
+  const data = loadData();
+  const grid = document.getElementById('gameGrid');
+  const searchInput = document.getElementById('gameSearch');
+
+  function cardHTML(slug, game) {
+    const pending = game.review.filter((r) => r.status === 'pending').length;
+    return `
+      <a href="library.html?game=${slug}" class="card" aria-label="Open ${game.name} workspace" data-name="${game.name.toLowerCase()}">
+        <div class="thumb" style="background:${colorFor(slug)}">cover art</div>
+        <div class="card-body">
+          <div class="card-title">${game.name}</div>
+          <div class="card-meta">${game.library.length} asset${game.library.length === 1 ? '' : 's'}${pending ? ` · ${pending} pending review` : ''}</div>
+        </div>
+      </a>`;
+  }
+
+  function render() {
+    const entries = Object.entries(data.games);
+    grid.innerHTML = entries.map(([slug, game]) => cardHTML(slug, game)).join('')
+      + `<button type="button" class="card add-card" id="addGameBtn"><span class="plus" aria-hidden="true">+</span>Add a game</button>`;
+    document.getElementById('addGameBtn').addEventListener('click', () => {
+      const name = prompt('Name this game:');
+      if (!name || !name.trim()) return;
+      const slug = slugify(name);
+      if (!data.games[slug]) {
+        data.games[slug] = { name: name.trim(), library: [], review: [] };
+        saveData(data);
+      }
+      render();
+    });
+    filter();
+  }
+
+  function filter() {
+    const q = searchInput.value.trim().toLowerCase();
+    grid.querySelectorAll('.card[data-name]').forEach((card) => {
+      card.classList.toggle('hidden', !card.dataset.name.includes(q));
+    });
+  }
+
+  searchInput.addEventListener('input', filter);
+  document.getElementById('resetLink').addEventListener('click', (e) => {
+    e.preventDefault();
+    if (confirm('Reset all local data back to the sample games? This clears anything you generated or approved here.')) resetData();
+  });
+
+  render();
+</script>
+</body>
+</html>

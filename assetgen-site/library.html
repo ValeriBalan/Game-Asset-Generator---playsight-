@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Library — Asset Generator</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="header" id="app-header"></header>
+
+<main class="container" style="padding-top:28px;padding-bottom:80px;" id="main">
+  <p class="muted">Loading…</p>
+</main>
+
+<script src="app.js"></script>
+<script>
+  const data = loadData();
+  const slug = getParam('game');
+  const game = data.games[slug];
+  const main = document.getElementById('main');
+
+  if (!game) {
+    main.innerHTML = `<p class="muted">No game found for "${slug || ''}". <a href="index.html" style="color:var(--accent);">Back to your games</a>.</p>`;
+  } else {
+    renderHeader(data, slug, 'library');
+    let activeType = 'All';
+
+    function assetCard(a) {
+      return `
+        <div class="card">
+          <div class="thumb" style="height:110px;background:${colorFor(a.id)}">${typeCode(a.type)}</div>
+          <div class="card-body" style="padding:8px 10px;">
+            <div style="font-size:12px;font-weight:600;word-break:break-all;">${filenameFor(slug, a)}</div>
+            <div style="font-size:11px;" class="muted">${a.type}</div>
+          </div>
+        </div>`;
+    }
+
+    const types = ['All', 'Sprite', 'Texture', 'Concept art'];
+
+    main.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px;">
+        <div>
+          <h1 style="margin:0 0 4px;font-size:22px;">Library</h1>
+          <p class="muted" id="libraryCount" style="margin:0 0 4px;font-size:13px;">${game.library.length} asset${game.library.length === 1 ? '' : 's'}</p>
+          <p class="path">/${slug}/library/</p>
+        </div>
+        <label class="flex-row gap-8" style="background:#15151a;border:1px solid var(--border);border-radius:8px;padding:8px 12px;">
+          <span class="muted" style="font-size:13px;">⌕</span>
+          <input type="search" id="librarySearch" placeholder="Search assets…" aria-label="Search library" style="border:none;outline:none;font-size:13px;background:transparent;padding:0;">
+        </label>
+      </div>
+      <div class="flex-row gap-8" style="margin-bottom:20px;flex-wrap:wrap;" id="typeChips">
+        ${types.map((t) => `<button type="button" class="chip ${t === activeType ? 'active' : ''}" data-type="${t}">${t}</button>`).join('')}
+      </div>
+      <div id="assetGrid"></div>
+    `;
+
+    const assetGrid = document.getElementById('assetGrid');
+    const searchInput = document.getElementById('librarySearch');
+
+    function renderGrid() {
+      const q = searchInput.value.trim().toLowerCase();
+      const filtered = game.library.filter((a) =>
+        (activeType === 'All' || a.type === activeType) &&
+        (!q || filenameFor(slug, a).toLowerCase().includes(q))
+      );
+
+      if (game.library.length === 0) {
+        assetGrid.innerHTML = emptyStateHTML(
+          'Good things are on the way',
+          `${game.name}'s library is empty. Generate your first asset from a description, or upload a screenshot to pull a style from it.`,
+          `generate.html?game=${slug}`,
+          'Generate an asset'
+        );
+      } else if (filtered.length === 0) {
+        assetGrid.innerHTML = `<p class="muted" style="padding:40px 0;text-align:center;">No assets match that filter.</p>`;
+      } else {
+        assetGrid.innerHTML = `<div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:16px;">${filtered.map(assetCard).join('')}</div>`;
+      }
+    }
+
+    searchInput.addEventListener('input', renderGrid);
+    document.querySelectorAll('#typeChips .chip').forEach((chip) => {
+      chip.addEventListener('click', () => {
+        activeType = chip.dataset.type;
+        document.querySelectorAll('#typeChips .chip').forEach((c) => c.classList.toggle('active', c === chip));
+        renderGrid();
+      });
+    });
+
+    renderGrid();
+  }
+</script>
+</body>
+</html>

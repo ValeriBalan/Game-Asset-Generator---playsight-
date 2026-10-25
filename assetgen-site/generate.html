@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Generate — Asset Generator</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="header" id="app-header"></header>
+
+<main class="container" style="padding-top:28px;padding-bottom:80px;" id="main">
+  <p class="muted">Loading…</p>
+</main>
+
+<script src="app.js"></script>
+<script>
+  const data = loadData();
+  const slug = getParam('game');
+  const game = data.games[slug];
+  const main = document.getElementById('main');
+  const mode = getParam('mode') === 'upload' ? 'upload' : 'describe';
+
+  if (!game) {
+    main.innerHTML = `<p class="muted">No game found for "${slug || ''}". <a href="index.html" style="color:var(--accent);">Back to your games</a>.</p>`;
+  } else {
+    renderHeader(data, slug, 'generate');
+
+    const refs = game.library.slice(0, 4);
+    const refsHTML = refs.length
+      ? `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;">${refs.map((a) => `<div class="thumb" style="height:48px;border-radius:6px;background:${colorFor(a.id)}"></div>`).join('')}</div>
+         <p class="muted" style="margin:6px 0 0;font-size:11px;">Auto-selected from the ${game.name} library.</p>`
+      : `<p class="muted" style="margin:0;font-size:11px;">No approved assets yet — results will be less consistent until the library has some.</p>`;
+
+    main.innerHTML = `
+      <h1 style="margin:0 0 16px;font-size:22px;">Generate</h1>
+      <div class="flex-row gap-8" style="margin-bottom:20px;">
+        <a href="generate.html?game=${slug}&mode=describe" class="mode ${mode === 'describe' ? 'active' : ''}">Describe it</a>
+        <a href="generate.html?game=${slug}&mode=upload" class="mode ${mode === 'upload' ? 'active' : ''}">From a screenshot</a>
+      </div>
+      <div style="display:flex;gap:24px;flex-wrap:wrap;">
+        <div class="card" id="composer" style="flex:0 0 340px;padding:20px;display:flex;flex-direction:column;gap:16px;height:fit-content;"></div>
+        <div style="flex:1 1 560px;min-width:0;" id="results"></div>
+      </div>
+    `;
+
+    const composer = document.getElementById('composer');
+    const results = document.getElementById('results');
+    results.innerHTML = `<p class="muted" style="font-size:13px;">Nothing generated yet this session.</p>`;
+
+    function addPendingToReview(type, subjectLabel, source) {
+      const variant = nextVariant(game, type, slugify(subjectLabel));
+      const item = revItem(type, subjectLabel, variant, source, 'Hadar', 0, 'pending');
+      game.review.push(item);
+      saveData(data);
+      renderHeader(data, slug, 'generate');
+      return item;
+    }
+
+    function resultCardHTML(key, label) {
+      return `
+        <div class="card" data-key="${key}">
+          <div class="thumb" style="height:150px;background:${colorFor(key)}"></div>
+          <div class="card-body" style="padding:10px 12px;display:flex;flex-direction:column;gap:8px;">
+            <div class="flex-row gap-8">
+              <button type="button" class="btn btn-primary submit-btn" style="flex:1;">Submit for review</button>
+              <button type="button" class="btn btn-secondary discard-btn">Discard</button>
+            </div>
+            <p class="muted" style="margin:0;font-size:10px;" class="status-line">Needs approval to join the library${label ? ` · ${label}` : ''}</p>
+          </div>
+        </div>`;
+    }
+
+    function wireResultCard(card, { type, subjectLabel, source }) {
+      const statusLine = card.querySelector('p');
+      card.querySelector('.submit-btn').addEventListener('click', () => {
+        const item = addPendingToReview(type, subjectLabel, source);
+        statusLine.textContent = `Submitted · will save as ${filenameFor(slug, item)}`;
+        card.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+      });
+      card.querySelector('.discard-btn').addEventListener('click', () => card.remove());
+    }
+
+    if (mode === 'describe') {
+      composer.innerHTML = `
+        <div>
+          <label class="field" for="prompt">Describe the asset you need</label>
+          <textarea id="prompt" rows="4">A glowing energy-shield power-up icon, hexagonal, matches the sci-fi HUD style</textarea>
+        </div>
+        <div>
+          <label class="field" for="type">Asset type</label>
+          <select id="type"><option>Sprite</option><option>Texture</option><option>Concept art</option></select>
+        </div>
+        <div>
+          <label class="field" for="count">Variations</label>
+          <select id="count"><option>2</option><option selected>4</option><option>6</option></select>
+        </div>
+        <div>
+          <div class="flex-row" style="justify-content:space-between;margin-bottom:8px;">
+            <span class="field" style="margin:0;">Style references</span>
+            <a href="library.html?game=${slug}" style="font-size:12px;font-weight:600;color:var(--accent);">Adjust →</a>
+          </div>
+          ${refsHTML}
+        </div>
+        <button type="button" class="btn btn-primary" id="generateBtn">Generate</button>
+        <p class="muted" style="margin:0;font-size:10px;text-align:center;">Generation powered by Scenario</p>
+      `;
+
+      document.getElementById('generateBtn').addEventListener('click', () => {
+        const promptText = document.getElementById('prompt').value.trim() || 'Untitled asset';
+        const type = document.getElementById('type').value;
+        const count = Number(document.getElementById('count').value);
+        const btn = document.getElementById('generateBtn');
+        btn.disabled = true;
+        results.innerHTML = `<p class="muted" style="font-size:13px;">Generating ${count} variation${count === 1 ? '' : 's'} with Scenario…</p>`;
+
+        setTimeout(() => {
+          btn.disabled = false;
+          const subjectLabel = promptText.split(/[,.]/)[0].slice(0, 40);
+          results.innerHTML = `
+            <p class="muted" style="margin:0 0 14px;font-size:13px;">${count} variation${count === 1 ? '' : 's'} generated just now</p>
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;" id="resultGrid"></div>
+          `;
+          const grid = document.getElementById('resultGrid');
+          for (let i = 0; i < count; i++) {
+            const key = promptText + '|' + i;
+            grid.insertAdjacentHTML('beforeend', resultCardHTML(key, type));
+            wireResultCard(grid.lastElementChild, { type, subjectLabel, source: { kind: 'prompt', text: promptText } });
+          }
+        }, 900);
+      });
+    } else {
+      composer.innerHTML = `
+        <div>
+          <label class="field">Screenshot</label>
+          <p class="path" style="margin-bottom:6px;">/${slug}/uploads/</p>
+          <input type="file" id="screenshotInput" accept="image/*" aria-label="Upload a screenshot">
+        </div>
+        <div id="detectionFields"></div>
+      `;
+      results.innerHTML = `<p class="muted" style="font-size:13px;">Upload a screenshot to detect assets in it.</p>`;
+
+      document.getElementById('screenshotInput').addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = reader.result;
+          const boxes = [
+            { id: 1, label: 'Health bar', color: '#5b8def', top: 10, left: 5, w: 28, h: 16 },
+            { id: 2, label: 'Enemy turret', color: '#3dd9a4', top: 34, left: 58, w: 24, h: 34 },
+            { id: 3, label: 'Background tile', color: '#c792ea', top: 66, left: 8, w: 30, h: 22 },
+          ];
+
+          document.getElementById('detectionFields').innerHTML = `
+            <div>
+              <label class="field">Detected assets (${boxes.length})</label>
+              <div style="display:flex;flex-direction:column;gap:8px;" id="detectRows">
+                ${boxes.map((b) => `
+                  <div class="detect-row" data-id="${b.id}">
+                    <input type="checkbox" checked aria-label="Include ${b.label}">
+                    <span style="width:18px;height:18px;border-radius:50%;background:${b.color};color:#121214;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:0 0 auto;">${b.id}</span>
+                    <input type="text" value="${b.label}" aria-label="Label for asset ${b.id}" style="flex:1;font-size:12px;">
+                  </div>`).join('')}
+              </div>
+              <p class="muted" style="margin:8px 0 0;font-size:11px;">Uncheck anything that isn't a reusable asset.</p>
+            </div>
+            <div>
+              <label class="field">Variations per asset</label>
+              <select id="uploadCount"><option>2</option><option selected>4</option><option>6</option></select>
+            </div>
+            <p class="muted" style="margin:0;font-size:12px;">Restyled to match <strong style="color:var(--text);">${game.name}</strong>.</p>
+            <button type="button" class="btn btn-primary" id="uploadGenerateBtn">Generate styled versions</button>
+            <p class="muted" style="margin:0;font-size:10px;text-align:center;">Generation powered by Scenario</p>
+          `;
+
+          results.innerHTML = `
+            <p class="muted" style="margin:0 0 10px;font-size:13px;">Detected in ${file.name}</p>
+            <div class="thumb" style="height:280px;border-radius:12px;position:relative;background-image:url(${dataUrl});background-size:cover;background-position:center;" id="screenshotPreview">
+              ${boxes.map((b) => `
+                <div style="position:absolute;top:${b.top}%;left:${b.left}%;width:${b.w}%;height:${b.h}%;border:2px solid ${b.color};border-radius:4px;">
+                  <span class="pin" style="background:${b.color};">${b.id}</span>
+                </div>`).join('')}
+            </div>
+            <div id="uploadResultGrid" style="margin-top:20px;"></div>
+          `;
+
+          document.getElementById('uploadGenerateBtn').addEventListener('click', () => {
+            const count = Number(document.getElementById('uploadCount').value);
+            const rows = Array.from(document.querySelectorAll('#detectRows .detect-row'))
+              .filter((row) => row.querySelector('input[type="checkbox"]').checked)
+              .map((row) => row.querySelector('input[type="text"]').value.trim() || 'Untitled asset');
+
+            if (rows.length === 0) {
+              alert('Check at least one detected asset to generate from.');
+              return;
+            }
+
+            const btn = document.getElementById('uploadGenerateBtn');
+            btn.disabled = true;
+            const grid = document.getElementById('uploadResultGrid');
+            grid.innerHTML = `<p class="muted" style="font-size:13px;">Generating styled versions with Scenario…</p>`;
+
+            setTimeout(() => {
+              btn.disabled = false;
+              grid.innerHTML = rows.map((label) => `
+                <div style="margin-bottom:20px;">
+                  <p class="muted" style="margin:0 0 14px;font-size:13px;">Styled versions — ${label}</p>
+                  <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;" class="row-grid" data-label="${label}"></div>
+                </div>
+              `).join('');
+              rows.forEach((label) => {
+                const rowGrid = grid.querySelector(`.row-grid[data-label="${CSS.escape(label)}"]`);
+                for (let i = 0; i < count; i++) {
+                  const key = label + '|' + i;
+                  rowGrid.insertAdjacentHTML('beforeend', resultCardHTML(key, null));
+                  wireResultCard(rowGrid.lastElementChild, {
+                    type: 'Sprite',
+                    subjectLabel: label,
+                    source: { kind: 'screenshot', screenshotName: file.name, dataUrl },
+                  });
+                }
+              });
+            }, 900);
+          });
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+  }
+</script>
+</body>
+</html>

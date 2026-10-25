@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Review — Asset Generator</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="header" id="app-header"></header>
+
+<main class="container" style="padding-top:28px;padding-bottom:80px;" id="main">
+  <p class="muted">Loading…</p>
+</main>
+
+<script src="app.js"></script>
+<script>
+  const data = loadData();
+  const slug = getParam('game');
+  const game = data.games[slug];
+  const main = document.getElementById('main');
+
+  if (!game) {
+    main.innerHTML = `<p class="muted">No game found for "${slug || ''}". <a href="index.html" style="color:var(--accent);">Back to your games</a>.</p>`;
+  } else {
+    renderHeader(data, slug, 'review');
+    let activeStatus = 'pending';
+
+    main.innerHTML = `
+      <h1 style="margin:0 0 4px;font-size:22px;">Review queue</h1>
+      <p class="muted" style="margin:0 0 4px;font-size:13px;">Approving adds the asset to the ${game.name} library as a new style reference. Anyone on the team can review for now.</p>
+      <p class="path" style="margin-bottom:20px;">/${slug}/review/pending/</p>
+      <div class="flex-row gap-8" style="margin-bottom:20px;" id="statusChips"></div>
+      <div id="reviewList"></div>
+    `;
+
+    const statusChips = document.getElementById('statusChips');
+    const reviewList = document.getElementById('reviewList');
+
+    function counts() {
+      return {
+        pending: game.review.filter((r) => r.status === 'pending').length,
+        approved: game.review.filter((r) => r.status === 'approved').length,
+        rejected: game.review.filter((r) => r.status === 'rejected').length,
+      };
+    }
+
+    function renderChips() {
+      const c = counts();
+      statusChips.innerHTML = `
+        <button type="button" class="chip ${activeStatus === 'pending' ? 'active' : ''}" data-s="pending">Pending (${c.pending})</button>
+        <button type="button" class="chip ${activeStatus === 'approved' ? 'active' : ''}" data-s="approved">Approved (${c.approved})</button>
+        <button type="button" class="chip ${activeStatus === 'rejected' ? 'active' : ''}" data-s="rejected">Rejected (${c.rejected})</button>
+      `;
+      statusChips.querySelectorAll('.chip').forEach((chip) => {
+        chip.addEventListener('click', () => { activeStatus = chip.dataset.s; renderChips(); renderList(); });
+      });
+    }
+
+    function sourceHTML(item) {
+      if (!item.source) return '';
+      if (item.source.kind === 'screenshot') {
+        return `<a href="${item.source.dataUrl}" target="_blank" rel="noopener"
+                  class="flex-row gap-8" style="display:inline-flex;padding:6px 8px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;">
+                  <span class="placeholder-sm" aria-hidden="true"></span>
+                  <span class="muted" style="font-size:11px;">Source: ${item.source.screenshotName} →</span>
+                </a>`;
+      }
+      return `<div style="font-size:13px;font-weight:600;margin-bottom:4px;">"${item.source.text}"</div>`;
+    }
+
+    function cardHTML(item) {
+      const refs = game.library.slice(0, 2);
+      return `
+        <div class="card" style="display:flex;gap:16px;padding:16px;flex-wrap:wrap;" data-id="${item.id}">
+          <div class="thumb" style="width:140px;height:110px;border-radius:8px;flex:0 0 auto;background:${colorFor(item.id)}">${typeCode(item.type)}</div>
+          <div style="flex:1 1 260px;min-width:0;">
+            ${sourceHTML(item)}
+            <div class="muted" style="font-size:12px;margin-bottom:8px;">Submitted by ${item.submittedBy} · ${timeAgo(item.submittedAt)} · ${item.type}</div>
+            ${refs.length ? `
+              <div class="flex-row gap-8" style="margin-bottom:8px;">
+                <span class="muted" style="font-size:11px;">Compared to:</span>
+                ${refs.map((r) => `<div class="thumb" style="width:26px;height:26px;border-radius:5px;background:${colorFor(r.id)}"></div>`).join('')}
+              </div>` : ''}
+            <div class="mono muted" style="font-size:11px;">${filenameFor(slug, item)}</div>
+            ${item.status === 'rejected' && item.rejectReason ? `<div class="muted" style="font-size:11px;margin-top:6px;">Reason: ${item.rejectReason}</div>` : ''}
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;flex:0 0 160px;">
+            ${item.status === 'pending' ? `
+              <button type="button" class="btn btn-primary approve-btn">Approve</button>
+              <button type="button" class="btn btn-secondary reject-btn">Reject</button>
+            ` : `<span class="muted" style="font-size:12px;text-transform:capitalize;">${item.status}</span>`}
+          </div>
+        </div>`;
+    }
+
+    function renderList() {
+      const items = game.review.filter((r) => r.status === activeStatus)
+        .sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
+
+      if (items.length === 0) {
+        reviewList.innerHTML = activeStatus === 'pending'
+          ? emptyStateHTML('Good things are on the way', 'Nothing’s waiting on review right now. Submissions from Generate will show up here.', null, null)
+          : `<p class="muted" style="padding:40px 0;text-align:center;">Nothing ${activeStatus} yet.</p>`;
+        return;
+      }
+
+      reviewList.innerHTML = `<div style="display:flex;flex-direction:column;gap:14px;">${items.map(cardHTML).join('')}</div>`;
+
+      reviewList.querySelectorAll('.approve-btn').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          const id = e.target.closest('[data-id]').dataset.id;
+          const item = game.review.find((r) => r.id === id);
+          item.status = 'approved';
+          game.library.push({ id: 'lib-' + item.id, type: item.type, subjectSlug: item.subjectSlug, subjectLabel: item.subjectLabel, variant: item.variant });
+          saveData(data);
+          renderHeader(data, slug, 'review');
+          renderChips();
+          renderList();
+        });
+      });
+      reviewList.querySelectorAll('.reject-btn').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          const id = e.target.closest('[data-id]').dataset.id;
+          const item = game.review.find((r) => r.id === id);
+          const reason = prompt('Why are you rejecting this? (shown to whoever submitted it)') || '';
+          item.status = 'rejected';
+          item.rejectReason = reason.trim();
+          saveData(data);
+          renderHeader(data, slug, 'review');
+          renderChips();
+          renderList();
+        });
+      });
+    }
+
+    renderChips();
+    renderList();
+  }
+</script>
+</body>
+</html>
